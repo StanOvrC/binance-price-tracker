@@ -7,6 +7,7 @@ import com.shokal.binancepricetracker.entity.Trend;
 import com.shokal.binancepricetracker.repository.PriceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -24,8 +25,10 @@ import java.util.List;
 public class PriceService {
     private final BinanceClient binanceClient;
     private final PriceRepository priceRepository;
+    @Value("${binance.api.symbol}")
+    private String defaultSymbol;
 
-    @Scheduled(fixedDelayString = "${BINANCE_POLL_INTERVAL:PT30S}")
+    @Scheduled(fixedDelayString = "${binance.poll.interval}")
     public void save() {
         try {
             BinancePriceResponse response = binanceClient.getCurrentPrice();
@@ -85,7 +88,7 @@ public class PriceService {
             trend = Trend.FLAT;
         }
 
-        return new TrendResponse("BNBUSDT", from, to, trend);
+        return new TrendResponse(defaultSymbol, from, to, trend);
     }
 
     private void validateDates(OffsetDateTime from, OffsetDateTime to) {
@@ -96,7 +99,7 @@ public class PriceService {
 
     private Price mapToPrice(BinancePriceResponse response) {
         Price price = new Price();
-        price.setSymbol("BNBUSDT");
+        price.setSymbol(defaultSymbol);
         price.setPrice(response.price());
         return price;
     }
