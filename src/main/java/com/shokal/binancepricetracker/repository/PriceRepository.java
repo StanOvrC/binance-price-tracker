@@ -18,4 +18,8 @@ public interface PriceRepository extends JpaRepository<Price, Long> {
     Optional<BigDecimal> findAllByFetchedAtFromTo(@Param("from") OffsetDateTime from, @Param("to") OffsetDateTime to);
 
     Page<Price> findAllByFetchedAtBetween(OffsetDateTime from, OffsetDateTime to, Pageable pageable);
+
+    Optional<Price> findFirstByFetchedAtBetweenOrderByFetchedAtAsc(OffsetDateTime from, OffsetDateTime to);
+
+    Optional<Price> findFirstByFetchedAtBetweenOrderByFetchedAtDesc(OffsetDateTime from, OffsetDateTime to);
 }

@@ -1,13 +1,12 @@
 package com.shokal.binancepricetracker.service;
 
 import com.shokal.binancepricetracker.BinanceClient;
-import com.shokal.binancepricetracker.dto.AvgPriceResponse;
-import com.shokal.binancepricetracker.dto.BinancePriceResponse;
-import com.shokal.binancepricetracker.dto.PagedPriceResponse;
-import com.shokal.binancepricetracker.dto.PriceResponse;
+import com.shokal.binancepricetracker.dto.*;
 import com.shokal.binancepricetracker.entity.Price;
+import com.shokal.binancepricetracker.entity.Trend;
 import com.shokal.binancepricetracker.repository.PriceRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -21,23 +20,32 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PriceService {
     private final BinanceClient binanceClient;
     private final PriceRepository priceRepository;
 
     @Scheduled(fixedDelayString = "${BINANCE_POLL_INTERVAL:PT30S}")
     public void save() {
-        BinancePriceResponse response = binanceClient.getCurrentPrice();
-        priceRepository.save(mapToPrice(response));
+        try {
+            BinancePriceResponse response = binanceClient.getCurrentPrice();
+            if (response != null && response.price() != null) {
+                Price saved = priceRepository.save(mapToPrice(response));
+                log.info("Saved new price for {}: {}", saved.getSymbol(), saved.getPrice());
+            }
+        } catch (Exception e) {
+            log.error("Failed to fetch price from Binance: {}", e.getMessage());
+        }
     }
 
     public PriceResponse getCurrentPrice() {
         Price latest = priceRepository.findFirstByOrderByFetchedAtDesc()
-                .orElseThrow(() -> new RuntimeException("No price records found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No prices found"));
         return mapToPriceResponse(latest);
     }
 
     public AvgPriceResponse getAvgPrice(OffsetDateTime from, OffsetDateTime to) {
+        validateDates(from, to);
         BigDecimal avgPrice = priceRepository.findAllByFetchedAtFromTo(from, to)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "No prices found for the given period"));
@@ -45,6 +53,7 @@ public class PriceService {
     }
 
     public PagedPriceResponse getAllByFetchedAt(OffsetDateTime from, OffsetDateTime to, int page, int size) {
+        validateDates(from, to);
         Page<Price> pricePage = priceRepository.findAllByFetchedAtBetween(from, to, PageRequest.of(page, size));
 
         List<PriceResponse> items = pricePage.getContent().stream()
@@ -58,6 +67,31 @@ public class PriceService {
                 pricePage.getTotalElements(),
                 pricePage.hasNext()
         );
+    }
+
+    public TrendResponse getTrendByTime(OffsetDateTime from, OffsetDateTime to) {
+        validateDates(from, to);
+        BigDecimal fromPrice = priceRepository.findFirstByFetchedAtBetweenOrderByFetchedAtAsc(from, to)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No prices found")).getPrice();
+        BigDecimal toPrice = priceRepository.findFirstByFetchedAtBetweenOrderByFetchedAtDesc(from, to)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No prices found")).getPrice();
+
+        Trend trend;
+        if (fromPrice.compareTo(toPrice) > 0) {
+            trend = Trend.DOWNWARD;
+        } else if (fromPrice.compareTo(toPrice) < 0) {
+            trend = Trend.UPWARD;
+        } else {
+            trend = Trend.FLAT;
+        }
+
+        return new TrendResponse("BNBUSDT", from, to, trend);
+    }
+
+    private void validateDates(OffsetDateTime from, OffsetDateTime to) {
+        if (from.isAfter(to)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "'from' date must be before 'to' date");
+        }
     }
 
     private Price mapToPrice(BinancePriceResponse response) {
