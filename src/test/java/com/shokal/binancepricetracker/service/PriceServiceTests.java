@@ -3,6 +3,7 @@ package com.shokal.binancepricetracker.service;
 import com.shokal.binancepricetracker.BinanceClient;
 import com.shokal.binancepricetracker.dto.AvgPriceResponse;
 import com.shokal.binancepricetracker.dto.BinancePriceResponse;
+import com.shokal.binancepricetracker.dto.PagedPriceResponse;
 import com.shokal.binancepricetracker.dto.PriceResponse;
 import com.shokal.binancepricetracker.entity.Price;
 import com.shokal.binancepricetracker.repository.PriceRepository;
@@ -12,11 +13,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -193,5 +198,45 @@ public class PriceServiceTests {
                 () -> priceService.getAvgPrice(from, to));
 
         verify(priceRepository).findAllByFetchedAtFromTo(from, to);
+    }
+
+    @Test
+    @DisplayName("Test paged prices return when no exception occurs")
+    public void shouldReturnPagedPriceResponseWhenNoExceptionOccurs() {
+        OffsetDateTime from = OffsetDateTime.of(
+                2026, 10, 15, 10,
+                15, 10, 15, ZoneOffset.UTC
+        );
+        OffsetDateTime to = OffsetDateTime.of(
+                2026, 10, 30, 10,
+                15, 10, 15, ZoneOffset.UTC
+        );
+        int pageNumber = 1;
+        int size = 20;
+
+        Price price = new Price();
+        price.setId(99L);
+        price.setSymbol("BNBUSDT");
+        price.setPrice(BigDecimal.valueOf(701.002));
+
+        Page<Price> pricePage = new PageImpl<>(List.of(price));
+        given(priceRepository.findAllByFetchedAtBetween(from, to,
+                PageRequest.of(pageNumber, size)))
+                .willReturn(pricePage);
+
+        PagedPriceResponse response = priceService
+                .getAllByFetchedAt(from, to, pageNumber, size);
+
+        assertEquals(1, response.items().size());
+        assertEquals(price.getPrice(), response.items().getFirst().price());
+        assertEquals(price.getSymbol(), response.items().getFirst().symbol());
+        assertEquals(pricePage.getNumber(), response.page());
+        assertEquals(pricePage.getSize(), response.size());
+        assertEquals(pricePage.getTotalElements(), response.totalElements());
+        assertEquals(pricePage.hasNext(), response.hasNext());
+
+        verify(priceRepository).findAllByFetchedAtBetween(
+                from, to, PageRequest.of(pageNumber, size)
+        );
     }
 }
